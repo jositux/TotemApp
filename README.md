@@ -24,23 +24,6 @@ The app provides a seamless, high-touch visual experience where users can person
 
 ---
 
-## ⚙️ Core Workflow
-
-The application operates through a structured state machine to ensure a smooth user journey:
-
-### 1. 📝 PROMPT State (The Configuration)
-In this initial phase, the user defines the "soul" of the product:
-* **Data Ingestion**: Selecting the phone model and brand.
-* **Personalization**: Uploading custom images or selecting URLs for design inspiration. 
-* **Validation**: The system ensures images meet quality standards and prevents duplicate entries in the order list.
-
-### 2. 🎬 VIDEO / PREVIEW State (The Visualization)
-Once the configuration is set, the system generates a high-fidelity preview:
-* Users see a 3D or high-res render of their custom case.
-* Final confirmation of details before proceeding to the self-checkout.
-
----
-
 ## 🛠 Tech Stack
 
 * **Framework**: Next.js 16+ (App Router)
