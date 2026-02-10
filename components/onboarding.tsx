@@ -28,63 +28,69 @@ const slides = [
   },
 ]
 
-const CARD_W = 260
+const COUNT = slides.length
+const CARD_W = 240
 const CARD_GAP = 16
+const STEP = CARD_W + CARD_GAP
 
-function clamp(val: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, val))
+function clamp(v: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, v))
 }
 
-function lerp(a: number, b: number, t: number) {
-  return a + (b - a) * t
+/** Modulo that always returns a positive value */
+function mod(n: number, m: number) {
+  return ((n % m) + m) % m
+}
+
+/** Shortest signed distance on a ring of `m` items */
+function ringDist(a: number, b: number, m: number) {
+  const d = mod(a - b, m)
+  return d > m / 2 ? d - m : d
 }
 
 export function Onboarding() {
   const { onboardingStep, setOnboardingStep, setStep } = useApp()
-  const trackRef = useRef<HTMLDivElement>(null)
 
-  // dragOffset is in px: 0 = card 0 centered, negative = dragged left
-  const [dragOffset, setDragOffset] = useState(0)
+  // virtualIndex tracks cumulative position (can go negative or > COUNT-1)
+  const [virtualIndex, setVirtualIndex] = useState(0)
+  const [dragDelta, setDragDelta] = useState(0) // px while dragging
   const [isDragging, setIsDragging] = useState(false)
   const [animating, setAnimating] = useState(false)
 
   const pointerOrigin = useRef(0)
-  const offsetOrigin = useRef(0)
   const velocityRef = useRef(0)
   const lastX = useRef(0)
   const lastTime = useRef(0)
+  const virtualAtStart = useRef(0)
 
-  // Convert step index to an offset in px (0-based, negative for right slides)
-  const stepToOffset = (step: number) => -step * (CARD_W + CARD_GAP)
+  // The real slide index (0..COUNT-1)
+  const realIndex = mod(virtualIndex, COUNT)
 
-  // Snap the offset to the nearest valid step
-  const snapToNearest = useCallback(
-    (offset: number, velocity: number) => {
-      const raw = -offset / (CARD_W + CARD_GAP)
-      // Apply velocity bias: if flicking fast, round in flick direction
-      const biased = velocity !== 0 ? raw + clamp(velocity * -0.3, -0.4, 0.4) : raw
-      const idx = clamp(Math.round(biased), 0, slides.length - 1)
-      setOnboardingStep(idx)
+  // Sync the app-level step with our local real index
+  useEffect(() => {
+    setOnboardingStep(realIndex)
+  }, [realIndex, setOnboardingStep])
+
+  // When dots are clicked, jump to that real index via shortest path
+  const goToSlide = useCallback(
+    (targetReal: number) => {
+      const diff = ringDist(targetReal, realIndex, COUNT)
       setAnimating(true)
-      setDragOffset(stepToOffset(idx))
+      setVirtualIndex((prev) => prev + diff)
     },
-    [setOnboardingStep],
+    [realIndex],
   )
 
-  // Keep offset in sync when step is changed externally (dots, buttons)
-  useEffect(() => {
-    if (!isDragging) {
-      setAnimating(true)
-      setDragOffset(stepToOffset(onboardingStep))
-    }
-  }, [onboardingStep, isDragging])
+  // fractional progress used for interpolation: 0 = card centered, drag moves it
+  const fractionalOffset = virtualIndex + dragDelta / STEP
 
   // --- Pointer handlers ---
   const onPointerDown = (e: React.PointerEvent) => {
     if (animating) setAnimating(false)
     setIsDragging(true)
+    setDragDelta(0)
     pointerOrigin.current = e.clientX
-    offsetOrigin.current = dragOffset
+    virtualAtStart.current = virtualIndex
     velocityRef.current = 0
     lastX.current = e.clientX
     lastTime.current = Date.now()
@@ -94,15 +100,8 @@ export function Onboarding() {
   const onPointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return
     const dx = e.clientX - pointerOrigin.current
-    const maxOffset = 0
-    const minOffset = -(slides.length - 1) * (CARD_W + CARD_GAP)
-    // Add rubber-band feel at edges
-    let next = offsetOrigin.current + dx
-    if (next > maxOffset) next = maxOffset + (next - maxOffset) * 0.3
-    if (next < minOffset) next = minOffset + (next - minOffset) * 0.3
-    setDragOffset(next)
+    setDragDelta(-dx) // negative because dragging left = advancing
 
-    // Track velocity
     const now = Date.now()
     const dt = now - lastTime.current
     if (dt > 0) {
@@ -115,25 +114,30 @@ export function Onboarding() {
   const onPointerUp = () => {
     if (!isDragging) return
     setIsDragging(false)
-    snapToNearest(dragOffset, velocityRef.current)
+
+    // Determine how many steps to advance (with velocity bias)
+    const rawSteps = dragDelta / STEP
+    const velocityBias = clamp(-velocityRef.current * 0.4, -0.5, 0.5)
+    const snapped = Math.round(rawSteps + velocityBias)
+
+    setDragDelta(0)
+    setAnimating(true)
+    setVirtualIndex((prev) => prev + snapped)
   }
 
-  const currentSlide = slides[onboardingStep]
+  const currentSlide = slides[realIndex]
 
   const handleNext = () => {
-    if (onboardingStep < slides.length - 1) {
-      setOnboardingStep(onboardingStep + 1)
-    } else {
-      setStep("auth")
-    }
+    setAnimating(true)
+    setVirtualIndex((prev) => prev + 1)
   }
 
   const handleStart = () => {
     setStep("auth")
   }
 
-  // Continuous progress value (0..slides.length-1) for smooth interpolation
-  const progress = -dragOffset / (CARD_W + CARD_GAP)
+  // Build visible cards: current + neighbours on each side
+  const visibleRange = [-2, -1, 0, 1, 2]
 
   return (
     <div className="relative flex flex-col min-h-screen bg-gradient-to-b from-[#4a1a8a] via-[#5b2d9e] to-[#7b3fb5] overflow-hidden select-none">
@@ -144,40 +148,43 @@ export function Onboarding() {
         </span>
       </header>
 
-      {/* Card Carousel – drag-based */}
+      {/* Card Carousel */}
       <div
-        ref={trackRef}
         className="relative z-10 flex-shrink-0 touch-pan-y overflow-hidden cursor-grab active:cursor-grabbing"
+        style={{ height: 380 }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        <div
-          className="flex items-center justify-center"
-          style={{
-            transform: `translateX(${dragOffset}px)`,
-            transition: animating && !isDragging ? "transform 0.45s cubic-bezier(.25,.85,.35,1)" : "none",
-            gap: `${CARD_GAP}px`,
-          }}
-          onTransitionEnd={() => setAnimating(false)}
-        >
-          {slides.map((slide, index) => {
-            // How far this card is from center (fractional)
-            const dist = Math.abs(index - progress)
-            const scale = lerp(1, 0.85, clamp(dist, 0, 1))
-            const opacity = lerp(1, 0.5, clamp(dist, 0, 1))
+        <div className="absolute inset-0 flex items-center justify-center">
+          {visibleRange.map((offset) => {
+            const slideIdx = mod(virtualIndex + offset, COUNT)
+            const slide = slides[slideIdx]
+
+            // Position relative to center (fractional, accounts for drag)
+            const pos = offset - dragDelta / STEP
+            const dist = Math.abs(pos)
+
+            // Same size for all, only opacity changes
+            const opacity = dist < 0.1 ? 1 : clamp(1 - dist * 0.5, 0.3, 0.7)
+            const translateX = pos * STEP
+            const zIndex = 10 - Math.round(dist)
 
             return (
               <div
-                key={index}
-                className="relative flex-shrink-0 rounded-3xl overflow-hidden"
+                key={`${virtualIndex}-${offset}`}
+                className="absolute rounded-3xl overflow-hidden"
                 style={{
                   width: CARD_W,
                   height: 360,
-                  transform: `scale(${scale})`,
+                  transform: `translateX(${translateX}px)`,
                   opacity,
-                  transition: isDragging ? "none" : "transform 0.45s cubic-bezier(.25,.85,.35,1), opacity 0.45s ease",
+                  zIndex,
+                  transition:
+                    isDragging
+                      ? "none"
+                      : "transform 0.45s cubic-bezier(.25,.85,.35,1), opacity 0.45s ease",
                 }}
               >
                 <img
@@ -202,9 +209,9 @@ export function Onboarding() {
         {slides.map((_, index) => (
           <button
             key={index}
-            onClick={() => setOnboardingStep(index)}
+            onClick={() => goToSlide(index)}
             className={`h-2.5 rounded-full transition-all duration-300 ${
-              index === onboardingStep
+              index === realIndex
                 ? "w-8 bg-accent"
                 : "w-2.5 bg-white/30"
             }`}
