@@ -13,14 +13,16 @@ export function AppShell() {
   const { currentStep } = useApp()
 
   return (
-    <div className="min-h-screen bg-background">
-      {currentStep === "onboarding" && <Onboarding />}
-      {currentStep === "auth" && <Auth />}
-      {currentStep === "home" && <Home />}
-      {currentStep === "product" && <ProductDetail />}
-      {currentStep === "cart" && <Cart />}
-      {(currentStep === "checkout" || currentStep === "address" || currentStep === "payment") && <Checkout />}
-      {currentStep === "confirmation" && <Confirmation />}
+    <div className="min-h-screen bg-muted flex justify-center">
+      <div className="w-full max-w-[480px] min-h-screen bg-background relative overflow-hidden">
+        {currentStep === "onboarding" && <Onboarding />}
+        {currentStep === "auth" && <Auth />}
+        {currentStep === "home" && <Home />}
+        {currentStep === "product" && <ProductDetail />}
+        {currentStep === "cart" && <Cart />}
+        {(currentStep === "checkout" || currentStep === "address" || currentStep === "payment") && <Checkout />}
+        {currentStep === "confirmation" && <Confirmation />}
+      </div>
     </div>
   )
 }
