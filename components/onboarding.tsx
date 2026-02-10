@@ -1,22 +1,22 @@
 "use client"
 
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useCallback, useEffect } from "react"
 import { useApp } from "@/lib/store-context"
 import { Button } from "@/components/ui/button"
 
 const slides = [
   {
     label: "Personaliza",
-    title: "Personaliza la\nprotección de\ntu celular",
+    title: "Personaliza la\nproteccion de\ntu celular",
     description:
-      "Crea una protección única combinando seguridad, diseño y tecnología en minutos, directamente en tienda.",
+      "Crea una proteccion unica combinando seguridad, diseno y tecnologia en minutos, directamente en tienda.",
     image: "/onboarding-1.jpg",
   },
   {
     label: "Protege",
-    title: "Protege tu\ncelular con\nestilo único",
+    title: "Protege tu\ncelular con\nestilo unico",
     description:
-      "Elige entre cientos de diseños y materiales premium que se adaptan a tu personalidad y estilo de vida.",
+      "Elige entre cientos de disenos y materiales premium que se adaptan a tu personalidad y estilo de vida.",
     image: "/onboarding-2.jpg",
   },
   {
@@ -28,12 +28,95 @@ const slides = [
   },
 ]
 
+const CARD_W = 260
+const CARD_GAP = 16
+
+function clamp(val: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, val))
+}
+
+function lerp(a: number, b: number, t: number) {
+  return a + (b - a) * t
+}
+
 export function Onboarding() {
   const { onboardingStep, setOnboardingStep, setStep } = useApp()
-  const scrollRef = useRef<HTMLDivElement>(null)
+  const trackRef = useRef<HTMLDivElement>(null)
+
+  // dragOffset is in px: 0 = card 0 centered, negative = dragged left
+  const [dragOffset, setDragOffset] = useState(0)
   const [isDragging, setIsDragging] = useState(false)
-  const [startX, setStartX] = useState(0)
-  const [scrollLeft, setScrollLeft] = useState(0)
+  const [animating, setAnimating] = useState(false)
+
+  const pointerOrigin = useRef(0)
+  const offsetOrigin = useRef(0)
+  const velocityRef = useRef(0)
+  const lastX = useRef(0)
+  const lastTime = useRef(0)
+
+  // Convert step index to an offset in px (0-based, negative for right slides)
+  const stepToOffset = (step: number) => -step * (CARD_W + CARD_GAP)
+
+  // Snap the offset to the nearest valid step
+  const snapToNearest = useCallback(
+    (offset: number, velocity: number) => {
+      const raw = -offset / (CARD_W + CARD_GAP)
+      // Apply velocity bias: if flicking fast, round in flick direction
+      const biased = velocity !== 0 ? raw + clamp(velocity * -0.3, -0.4, 0.4) : raw
+      const idx = clamp(Math.round(biased), 0, slides.length - 1)
+      setOnboardingStep(idx)
+      setAnimating(true)
+      setDragOffset(stepToOffset(idx))
+    },
+    [setOnboardingStep],
+  )
+
+  // Keep offset in sync when step is changed externally (dots, buttons)
+  useEffect(() => {
+    if (!isDragging) {
+      setAnimating(true)
+      setDragOffset(stepToOffset(onboardingStep))
+    }
+  }, [onboardingStep, isDragging])
+
+  // --- Pointer handlers ---
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (animating) setAnimating(false)
+    setIsDragging(true)
+    pointerOrigin.current = e.clientX
+    offsetOrigin.current = dragOffset
+    velocityRef.current = 0
+    lastX.current = e.clientX
+    lastTime.current = Date.now()
+    ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+  }
+
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!isDragging) return
+    const dx = e.clientX - pointerOrigin.current
+    const maxOffset = 0
+    const minOffset = -(slides.length - 1) * (CARD_W + CARD_GAP)
+    // Add rubber-band feel at edges
+    let next = offsetOrigin.current + dx
+    if (next > maxOffset) next = maxOffset + (next - maxOffset) * 0.3
+    if (next < minOffset) next = minOffset + (next - minOffset) * 0.3
+    setDragOffset(next)
+
+    // Track velocity
+    const now = Date.now()
+    const dt = now - lastTime.current
+    if (dt > 0) {
+      velocityRef.current = (e.clientX - lastX.current) / dt
+    }
+    lastX.current = e.clientX
+    lastTime.current = now
+  }
+
+  const onPointerUp = () => {
+    if (!isDragging) return
+    setIsDragging(false)
+    snapToNearest(dragOffset, velocityRef.current)
+  }
 
   const currentSlide = slides[onboardingStep]
 
@@ -49,36 +132,11 @@ export function Onboarding() {
     setStep("auth")
   }
 
-  // Scroll to the active card when step changes
-  useEffect(() => {
-    const container = scrollRef.current
-    if (!container) return
-    const cardWidth = 260
-    const gap = 16
-    const containerWidth = container.offsetWidth
-    const scrollTo =
-      onboardingStep * (cardWidth + gap) - (containerWidth - cardWidth) / 2
-    container.scrollTo({ left: Math.max(0, scrollTo), behavior: "smooth" })
-  }, [onboardingStep])
-
-  // Detect which card is most visible after scroll ends
-  const handleScrollEnd = () => {
-    const container = scrollRef.current
-    if (!container || isDragging) return
-    const cardWidth = 260
-    const gap = 16
-    const scrollPos = container.scrollLeft
-    const containerWidth = container.offsetWidth
-    const centerPos = scrollPos + containerWidth / 2
-    const index = Math.round((centerPos - cardWidth / 2) / (cardWidth + gap))
-    const clamped = Math.max(0, Math.min(slides.length - 1, index))
-    if (clamped !== onboardingStep) {
-      setOnboardingStep(clamped)
-    }
-  }
+  // Continuous progress value (0..slides.length-1) for smooth interpolation
+  const progress = -dragOffset / (CARD_W + CARD_GAP)
 
   return (
-    <div className="relative flex flex-col min-h-screen bg-gradient-to-b from-[#4a1a8a] via-[#5b2d9e] to-[#7b3fb5] overflow-hidden">
+    <div className="relative flex flex-col min-h-screen bg-gradient-to-b from-[#4a1a8a] via-[#5b2d9e] to-[#7b3fb5] overflow-hidden select-none">
       {/* Header / Logo */}
       <header className="relative z-10 flex justify-center pt-10 pb-4">
         <span className="text-white font-bold text-3xl italic tracking-tight">
@@ -86,46 +144,56 @@ export function Onboarding() {
         </span>
       </header>
 
-      {/* Card Carousel */}
-      <div className="relative z-10 flex-shrink-0">
+      {/* Card Carousel – drag-based */}
+      <div
+        ref={trackRef}
+        className="relative z-10 flex-shrink-0 touch-pan-y overflow-hidden cursor-grab active:cursor-grabbing"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
         <div
-          ref={scrollRef}
-          onScroll={handleScrollEnd}
-          className="flex gap-4 overflow-x-auto px-6 pb-4 snap-x snap-mandatory scrollbar-hide"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+          className="flex items-center justify-center"
+          style={{
+            transform: `translateX(${dragOffset}px)`,
+            transition: animating && !isDragging ? "transform 0.45s cubic-bezier(.25,.85,.35,1)" : "none",
+            gap: `${CARD_GAP}px`,
+          }}
+          onTransitionEnd={() => setAnimating(false)}
         >
-          {/* Left spacer so first card can center */}
-          <div className="flex-shrink-0 w-[calc((100%-260px)/2-8px)]" />
           {slides.map((slide, index) => {
-            const isActive = index === onboardingStep
+            // How far this card is from center (fractional)
+            const dist = Math.abs(index - progress)
+            const scale = lerp(1, 0.85, clamp(dist, 0, 1))
+            const opacity = lerp(1, 0.5, clamp(dist, 0, 1))
+
             return (
-              <button
+              <div
                 key={index}
-                type="button"
-                onClick={() => setOnboardingStep(index)}
-                className={`relative flex-shrink-0 w-[260px] h-[360px] rounded-3xl overflow-hidden snap-center transition-all duration-500 ease-out ${
-                  isActive
-                    ? "scale-100 opacity-100 shadow-2xl"
-                    : "scale-90 opacity-60 shadow-lg"
-                }`}
+                className="relative flex-shrink-0 rounded-3xl overflow-hidden"
+                style={{
+                  width: CARD_W,
+                  height: 360,
+                  transform: `scale(${scale})`,
+                  opacity,
+                  transition: isDragging ? "none" : "transform 0.45s cubic-bezier(.25,.85,.35,1), opacity 0.45s ease",
+                }}
               >
                 <img
                   src={slide.image || "/placeholder.svg"}
                   alt={slide.label}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover pointer-events-none"
+                  draggable={false}
                   crossOrigin="anonymous"
                 />
-                {/* Gradient overlay */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
-                {/* Label on card */}
-                <span className="absolute bottom-6 left-6 text-white text-2xl font-bold">
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent pointer-events-none" />
+                <span className="absolute bottom-6 left-6 text-white text-2xl font-bold pointer-events-none">
                   {slide.label}
                 </span>
-              </button>
+              </div>
             )
           })}
-          {/* Right spacer so last card can center */}
-          <div className="flex-shrink-0 w-[calc((100%-260px)/2-8px)]" />
         </div>
       </div>
 
