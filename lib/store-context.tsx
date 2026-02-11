@@ -1,195 +1,118 @@
-"use client"
+"use client";
 
-import { createContext, useContext, useState, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  type ReactNode,
+} from "react";
 
-export interface Product {
-  id: string
-  name: string
-  price: number
-  image: string
-  category: string
-  description: string
-  colors: string[]
-}
-
-export interface CartItem extends Product {
-  quantity: number
-  selectedColor: string
-}
-
-export interface User {
-  name: string
-  email: string
-  phone?: string
+export interface SelectionState {
+  brand: string | null;
+  model: string | null;
+  comboId: string | null;
+  micaId: string | null;
+  caseId: string | null;
+  caseColor: string | null;
+  caseType: string | null;
+  // --- ESTADO DE IMAGEN CON INDICADOR DE ORIGEN ---
+  imageSourceType: "brand" | "custom" | null; // Indica qué quedó seleccionado
+  imageBrandId: string | null;   // ID de imagen de catálogo (Disney, etc)
+  imageCustomId: string | null;  // ID o URL de imagen subida por usuario
+  selectedBrandTag: string | null; // Nombre de la marca (ej: "Disney")
+  imageConfig: {
+    orientation: "Vertical" | "Horizontal";
+    size: "Grande" | "Mediana" | "Pequeña";
+  } | null;
 }
 
 interface AppState {
-  currentStep: 
+  currentStep:
     | "onboarding"
+    | "phone-selector"
+    | "combo-selector"
+    | "mica-selector"
+    | "case-selector"
+    | "image-selector"
     | "auth"
-    | "home"
-    | "product"
-    | "cart"
-    | "checkout"
-    | "address"
-    | "payment"
-    | "confirmation"
-  onboardingStep: number
-  authMode: "login" | "register"
-  user: User | null
-  cart: CartItem[]
-  selectedProduct: Product | null
-  selectedCategory: string
-  orderNumber: string | null
+    | "final-summary";
+  selection: SelectionState;
 }
 
 interface AppContextType extends AppState {
-  setStep: (step: AppState["currentStep"]) => void
-  setOnboardingStep: (step: number) => void
-  setAuthMode: (mode: "login" | "register") => void
-  login: (user: User) => void
-  logout: () => void
-  addToCart: (product: Product, color: string) => void
-  removeFromCart: (productId: string) => void
-  updateQuantity: (productId: string, quantity: number) => void
-  clearCart: () => void
-  selectProduct: (product: Product | null) => void
-  setCategory: (category: string) => void
-  completeOrder: () => void
-  cartTotal: number
-  cartCount: number
+  setStep: (step: AppState["currentStep"]) => void;
+  updateSelection: (data: Partial<SelectionState>) => void;
+  resetImage: () => void;
 }
 
-const AppContext = createContext<AppContextType | undefined>(undefined)
+const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>({
     currentStep: "onboarding",
-    onboardingStep: 0,
-    authMode: "login",
-    user: null,
-    cart: [],
-    selectedProduct: null,
-    selectedCategory: "Todos",
-    orderNumber: null,
-  })
+    selection: {
+      brand: null,
+      model: null,
+      comboId: null,
+      micaId: null,
+      caseId: null,
+      caseType: null,
+      caseColor: null,
+      imageSourceType: null, // Inicialmente nada
+      imageBrandId: null,
+      imageCustomId: null,
+      selectedBrandTag: null,
+      imageConfig: null,
+    },
+  });
+
+  useEffect(() => {
+    const saved = localStorage.getItem("telcel_selection");
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        setState((prev) => ({ 
+          ...prev, 
+          selection: { ...prev.selection, ...parsed } 
+        }));
+      } catch (e) {
+        console.error("Error cargando selección", e);
+      }
+    }
+  }, []);
 
   const setStep = (step: AppState["currentStep"]) => {
-    setState((prev) => ({ ...prev, currentStep: step }))
-  }
+    setState((prev) => ({ ...prev, currentStep: step }));
+  };
 
-  const setOnboardingStep = (step: number) => {
-    setState((prev) => ({ ...prev, onboardingStep: step }))
-  }
-
-  const setAuthMode = (mode: "login" | "register") => {
-    setState((prev) => ({ ...prev, authMode: mode }))
-  }
-
-  const login = (user: User) => {
-    setState((prev) => ({ ...prev, user, currentStep: "home" }))
-  }
-
-  const logout = () => {
-    setState((prev) => ({ ...prev, user: null, currentStep: "auth" }))
-  }
-
-  const addToCart = (product: Product, color: string) => {
+  const updateSelection = (data: Partial<SelectionState>) => {
     setState((prev) => {
-      const existingItem = prev.cart.find(
-        (item) => item.id === product.id && item.selectedColor === color
-      )
-      if (existingItem) {
-        return {
-          ...prev,
-          cart: prev.cart.map((item) =>
-            item.id === product.id && item.selectedColor === color
-              ? { ...item, quantity: item.quantity + 1 }
-              : item
-          ),
-        }
-      }
-      return {
-        ...prev,
-        cart: [...prev.cart, { ...product, quantity: 1, selectedColor: color }],
-      }
-    })
-  }
+      const newSelection = { ...prev.selection, ...data };
+      localStorage.setItem("telcel_selection", JSON.stringify(newSelection));
+      return { ...prev, selection: newSelection };
+    });
+  };
 
-  const removeFromCart = (productId: string) => {
-    setState((prev) => ({
-      ...prev,
-      cart: prev.cart.filter((item) => item.id !== productId),
-    }))
-  }
-
-  const updateQuantity = (productId: string, quantity: number) => {
-    setState((prev) => ({
-      ...prev,
-      cart: prev.cart.map((item) =>
-        item.id === productId ? { ...item, quantity: Math.max(0, quantity) } : item
-      ).filter((item) => item.quantity > 0),
-    }))
-  }
-
-  const clearCart = () => {
-    setState((prev) => ({ ...prev, cart: [] }))
-  }
-
-  const selectProduct = (product: Product | null) => {
-    setState((prev) => ({ ...prev, selectedProduct: product }))
-  }
-
-  const setCategory = (category: string) => {
-    setState((prev) => ({ ...prev, selectedCategory: category }))
-  }
-
-  const completeOrder = () => {
-    const orderNum = `ORD-${Date.now().toString(36).toUpperCase()}`
-    setState((prev) => ({
-      ...prev,
-      orderNumber: orderNum,
-      cart: [],
-      currentStep: "confirmation",
-    }))
-  }
-
-  const cartTotal = state.cart.reduce(
-    (total, item) => total + item.price * item.quantity,
-    0
-  )
-
-  const cartCount = state.cart.reduce((count, item) => count + item.quantity, 0)
+  const resetImage = () => {
+    updateSelection({
+      imageSourceType: null,
+      imageBrandId: null,
+      imageCustomId: null,
+      selectedBrandTag: null,
+      imageConfig: null
+    });
+  };
 
   return (
-    <AppContext.Provider
-      value={{
-        ...state,
-        setStep,
-        setOnboardingStep,
-        setAuthMode,
-        login,
-        logout,
-        addToCart,
-        removeFromCart,
-        updateQuantity,
-        clearCart,
-        selectProduct,
-        setCategory,
-        completeOrder,
-        cartTotal,
-        cartCount,
-      }}
-    >
+    <AppContext.Provider value={{ ...state, setStep, updateSelection, resetImage }}>
       {children}
     </AppContext.Provider>
-  )
+  );
 }
 
-export function useApp() {
-  const context = useContext(AppContext)
-  if (!context) {
-    throw new Error("useApp must be used within an AppProvider")
-  }
-  return context
-}
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) throw new Error("useApp must be used within AppProvider");
+  return context;
+};
