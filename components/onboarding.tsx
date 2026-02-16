@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback } from "react"
 import Image from "next/image"
-import { useApp } from "@/hooks/use-app" // <--- Cambiado al nuevo hook de Jotai
+import { useApp } from "@/hooks/use-app" 
 import { Button } from "@/components/ui/button"
 
 const slides = [
@@ -45,7 +45,6 @@ function ringDist(a: number, b: number, m: number) {
 }
 
 export function Onboarding() {
-  // Extraemos setStep del hook de Jotai
   const { setStep, isHydrated } = useApp()
 
   const [virtualIndex, setVirtualIndex] = useState(0)
@@ -73,32 +72,32 @@ export function Onboarding() {
     moveBySteps(diff)
   }
 
-  const handleCardClick = (offset: number) => {
-    if (hasMoved.current || offset === 0) return
-    moveBySteps(offset)
-  }
-
-  const handleStart = () => {
-    // Al ser un átomo persistente, si el usuario vuelve a entrar
-    // saltará directamente al PhoneSelectorPage si así lo decidimos
-    setStep("phone-selector")
-  }
-
   const onPointerDown = (e: React.PointerEvent) => {
-    setAnimating(false)
+    // Si estamos en medio de una animación, no permitimos nuevo drag inmediato
+    if (animating) return 
+    
     setIsDragging(true)
     setDragDelta(0)
     hasMoved.current = false
     pointerOrigin.current = e.clientX
     lastX.current = e.clientX
     lastTime.current = Date.now()
-    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    
+    // Evitamos capturar el puntero aquí para que el onClick del hijo pueda dispararse
+    // si el movimiento es mínimo.
   }
 
   const onPointerMove = (e: React.PointerEvent) => {
     if (!isDragging) return
     const dx = e.clientX - pointerOrigin.current
-    if (Math.abs(dx) > 5) hasMoved.current = true
+    
+    // Solo consideramos que "se ha movido" si pasa de 5px (umbral de click)
+    if (Math.abs(dx) > 5) {
+      hasMoved.current = true
+      // Capturamos el puntero solo cuando confirmamos que es un drag
+      ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+    }
+    
     setDragDelta(-dx)
 
     const now = Date.now()
@@ -110,10 +109,11 @@ export function Onboarding() {
     lastTime.current = now
   }
 
-  const onPointerUp = () => {
+  const onPointerUp = (e: React.PointerEvent) => {
     if (!isDragging) return
     setIsDragging(false)
-
+    
+    // Si no se movió lo suficiente, dejamos que el onClick del hijo maneje la lógica
     if (!hasMoved.current) {
       setDragDelta(0)
       return
@@ -127,29 +127,30 @@ export function Onboarding() {
     moveBySteps(snapped)
   }
 
-  // Si no está hidratado (leyendo de localStorage), mostramos un contenedor vacío
-  // para evitar saltos visuales de color.
+  const handleStart = () => {
+    setStep("phone-selector")
+  }
+
   if (!isHydrated) return <div className="h-screen bg-[#4a1a8a]" />
 
   const currentSlide = slides[realIndex]
 
   return (
     <div className="relative flex flex-col h-screen max-h-screen bg-gradient-to-b from-[#4a1a8a] via-[#5b2d9e] to-[#7b3fb5] overflow-hidden select-none">
-      {/* Header */}
       <header className="relative z-10 flex justify-center pt-10 pb-4 shrink-0">
         <span className="text-white font-bold text-3xl italic tracking-tight">telcel</span>
       </header>
 
-      {/* Card Carousel */}
+      {/* Contenedor del Carrusel */}
       <div
-        className="relative z-10 shrink-0 touch-pan-y overflow-hidden cursor-grab active:cursor-grabbing"
+        className="relative z-10 shrink-0 touch-none overflow-hidden cursor-grab active:cursor-grabbing"
         style={{ height: 380 }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
       >
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           {[-2, -1, 0, 1, 2].map((offset) => {
             const slideIdx = mod(virtualIndex + offset, COUNT)
             const slide = slides[slideIdx]
@@ -163,8 +164,14 @@ export function Onboarding() {
             return (
               <div
                 key={`slide-${virtualIndex + offset}`}
-                onClick={() => handleCardClick(offset)}
-                className="absolute rounded-3xl overflow-hidden cursor-pointer"
+                // El truco está aquí: onClick con stopPropagation
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!hasMoved.current) {
+                    moveBySteps(offset);
+                  }
+                }}
+                className="absolute rounded-3xl overflow-hidden cursor-pointer pointer-events-auto"
                 style={{
                   width: CARD_W,
                   height: 360,
@@ -195,7 +202,7 @@ export function Onboarding() {
         </div>
       </div>
 
-      {/* Dot indicators */}
+      {/* Indicadores */}
       <div className="flex justify-center gap-2 py-5 shrink-0">
         {slides.map((_, index) => (
           <button
@@ -208,7 +215,7 @@ export function Onboarding() {
         ))}
       </div>
 
-      {/* Contenedor Flexible */}
+      {/* Textos Informativos */}
       <div className="relative z-10 flex-1 flex flex-col items-center px-8 text-center min-h-0">
         <h1 className="text-white text-3xl font-bold leading-tight whitespace-pre-line text-balance">
           {currentSlide.title}
@@ -218,7 +225,7 @@ export function Onboarding() {
         </p>
       </div>
 
-      {/* Footer Buttons */}
+      {/* Botones de acción */}
       <div className="relative z-10 flex gap-4 px-6 pb-[20px] pt-4 shrink-0">
         <Button
           onClick={() => moveBySteps(1)}

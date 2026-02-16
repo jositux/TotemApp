@@ -1,10 +1,8 @@
 "use client"
 
 import React, { useState, useMemo } from "react"
-import { Search, ChevronRight, Smartphone, Trash2 } from "lucide-react"
+import { Search, ChevronRight, Smartphone, Trash2, ArrowLeft } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
-import { TelcelHeader } from "@/components/shared/telcel-header"
-import { StepHeader } from "@/components/shared/step-header" // <--- IMPORTACIÓN DEL NUEVO COMPONENTE
 import { Button } from "@/components/ui/button"
 import { useApp } from "@/hooks/use-app"
 
@@ -16,7 +14,8 @@ const PHONE_DATA = {
 }
 
 export default function PhoneSelectorPage() {
-  const { setStep, selection, updateSelection, isHydrated } = useApp()
+  // Extraemos progress para el contador dinámico
+  const { setStep, selection, updateSelection, isHydrated, progress } = useApp()
   
   const [activePanel, setActivePanel] = useState<"none" | "brand" | "model">("none")
   const [search, setSearch] = useState("")
@@ -39,18 +38,7 @@ export default function PhoneSelectorPage() {
   if (!isHydrated) return null
 
   return (
-    <div className="flex flex-col h-full bg-[#f8fafc]">
-      <TelcelHeader />
-      
-      {/* NUEVO STEP HEADER CENTRALIZADO */}
-      <StepHeader 
-        currentStepNumber={1}
-        totalSteps={6}
-        title="Selecciona tu celular"
-        subtitle="Siguiente: Tu combo"
-        backTo="onboarding"
-      />
-
+    <div className="flex flex-col h-full bg-[#f8fafc] overflow-hidden">
       <main className="flex-1 p-5 space-y-4 overflow-y-auto">
         {/* Selector de Marca */}
         <div 
@@ -100,24 +88,8 @@ export default function PhoneSelectorPage() {
         </div>
       </main>
 
-      <footer className="p-6 shrink-0 space-y-4 bg-white border-t border-slate-100 rounded-t-[2.5rem] shadow-[0_-4px_20px_-5px_rgba(0,0,0,0.05)]">
-        <div className="bg-slate-50 p-5 rounded-[1.5rem] border border-slate-100">
-          <p className="font-bold text-slate-400 text-[10px] uppercase tracking-widest mb-1">Detalles de tu equipo</p>
-          <p className="text-slate-900 text-sm font-bold italic">
-            {brandSelected ? `${brandSelected}${modelSelected ? ` • ${modelSelected}` : ""}` : "Pendiente de selección"}
-          </p>
-        </div>
-        <Button 
-          disabled={!modelSelected} 
-          onClick={() => setStep("combo-selector")} 
-          className={`w-full h-16 rounded-[1.5rem] text-lg font-bold transition-all duration-300 
-            ${modelSelected ? "bg-[#6b21a8] text-white shadow-xl shadow-purple-200 active:scale-[0.98]" : "bg-slate-200 text-slate-400"}`}
-        >
-          Continuar
-        </Button>
-      </footer>
 
-      {/* Panel Lateral Animado (Marcas/Modelos) */}
+      {/* Panel Lateral Animado */}
       <AnimatePresence>
         {activePanel !== "none" && (
           <motion.div 
@@ -125,11 +97,11 @@ export default function PhoneSelectorPage() {
             animate={{ x: 0 }} 
             exit={{ x: "100%" }} 
             transition={{ type: "spring", damping: 25, stiffness: 200 }} 
-            className="absolute inset-0 z-[50] bg-white flex flex-col"
+            className="fixed inset-0 z-[100] bg-white flex flex-col"
           >
             <div className="p-4 flex items-center gap-4 border-b pt-10">
-              <button onClick={() => { setActivePanel("none"); setSearch(""); }} className="p-2 bg-slate-50 rounded-full hover:bg-slate-100 transition-colors">
-                 <Smartphone className="w-6 h-6 text-slate-600" />
+              <button onClick={() => { setActivePanel("none"); setSearch(""); }} className="p-2 bg-slate-50 rounded-full">
+                 <ArrowLeft className="w-6 h-6 text-slate-600" />
               </button>
               <h3 className="text-xl font-black flex-1 text-center pr-10 text-slate-900">
                 {activePanel === "brand" ? "Marcas" : "Modelos"}
@@ -158,7 +130,7 @@ export default function PhoneSelectorPage() {
                       setActivePanel("none"); 
                       setSearch(""); 
                     }} 
-                    className="w-full text-left p-5 rounded-2xl bg-white border border-slate-100 font-bold text-slate-800 flex justify-between items-center hover:border-[#1e62c1] hover:bg-blue-50/30 transition-all group"
+                    className="w-full text-left p-5 rounded-2xl bg-white border border-slate-100 font-bold text-slate-800 flex justify-between items-center group"
                   >
                     {item} 
                     <div className="w-6 h-6 rounded-full border-2 border-slate-200 group-hover:border-[#1e62c1] transition-colors" />
