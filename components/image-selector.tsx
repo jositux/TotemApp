@@ -1,259 +1,230 @@
 "use client"
 
-import React, { useState, useMemo } from "react"
-import { ArrowLeft, LogOut, Check, ChevronRight, Image as ImageIcon, Search, ZoomIn } from "lucide-react"
-import { TelcelHeader } from "@/components/shared/telcel-header"
-import { StepHeader } from "@/components/shared/step-header" // <--- Importado
+import React, { useState, useRef, useEffect } from "react"
+import { 
+  ArrowLeft, ChevronRight, RotateCw, 
+  Maximize, Minimize2, Square, ImagePlus, Pencil, Check
+} from "lucide-react"
+import { ColorSelector } from "@/components/shared/color-selector"
 import { Button } from "@/components/ui/button"
-import { useApp } from "@/hooks/use-app" // Ajustado a tu hook estándar
+import { useApp } from "@/hooks/use-app"
+import { motion, AnimatePresence } from "framer-motion"
 
-// --- TUS DATOS (SIN CAMBIOS) ---
+// --- DATOS MOCK ---
 const LICENSES = [
   { id: "disney", name: "Disney", logo: "https://upload.wikimedia.org/wikipedia/commons/3/3e/Disney_logo.svg" },
   { id: "fifa", name: "FIFA", logo: "https://upload.wikimedia.org/wikipedia/commons/a/aa/FIFA_logo_white.svg" },
-  { id: "ea", name: "EA Sports", logo: "https://upload.wikimedia.org/wikipedia/commons/0/0d/EA_Sports_logo.svg" },
 ]
 
 const IMAGES_BY_LICENSE: Record<string, {id: string, url: string}[]> = {
   disney: [
-    { id: "d1", url: "https://images.unsplash.com/photo-1592150621344-22d55e09042b?w=400" },
-    { id: "d2", url: "https://images.unsplash.com/photo-1608889175123-8ee362201f81?w=400" },
-    { id: "d3", url: "https://images.unsplash.com/photo-1608889476561-6242caac1944?w=400" },
-  ]
+    { id: "d1", url: "https://images.unsplash.com/photo-1592150621344-22d55e09042b?w=600" },
+    { id: "d2", url: "https://images.unsplash.com/photo-1608889175123-8ee362201f81?w=600" },
+    { id: "d3", url: "https://images.unsplash.com/photo-1518709268805-4e9042af9f23?w=600" },
+  ],
+  fifa: [{ id: "f1", url: "https://images.unsplash.com/photo-1614632537190-23e414dcd23d?w=600" }]
 }
 
-export function ImageSelector() {
-  const { setStep, selection, updateSelection, resetImage, isHydrated } = useApp()
-  const [activeTab, setActiveTab] = useState("Licencias")
+export default function ImageSelector() {
+  // Cambiamos setCurrentStep por setStep según la estructura de tu hook
+  const { selection, updateSelection, isHydrated, setStep } = useApp()
   
-  // Estados del Popup
-  const [showPopup, setShowPopup] = useState(false)
-  const [popupStep, setPopupStep] = useState<"gallery" | "adjust">("gallery")
-  
-  // Selección temporal dentro del popup
-  const [tempBrand, setTempBrand] = useState<any>(null)
-  const [tempImage, setTempImage] = useState<any>(null)
-  
-  // Ajustes de imagen
-  const [orientation, setOrientation] = useState<"Vertical" | "Horizontal">("Vertical")
-  const [size, setSize] = useState<"Grande" | "Mediana" | "Pequeña">("Grande")
-  const [acceptedLicense, setAcceptedLicense] = useState(false)
+  const [activeTab, setActiveTab] = useState<"Licencias" | "Imagen personal">("Licencias")
+  const [brandSelector, setBrandSelector] = useState<any>(null) 
+  const [tempSelectedImg, setTempSelectedImg] = useState<string | null>(null)
+  const [accepted, setAccepted] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Abrir popup al elegir marca
-  const handleBrandClick = (brand: any) => {
-    setTempBrand(brand)
-    setPopupStep("gallery")
-    setShowPopup(true)
-  }
+  const [editingImage, setEditingImage] = useState<{url: string, type: 'brand' | 'custom'} | null>(null)
+  const [config, setConfig] = useState({ rotation: 0, size: "Grande" as "Pequeña" | "Mediana" | "Grande" })
 
-  // Confirmar desde el popup y guardar
-  const handleConfirmAdjustment = () => {
-    updateSelection({
-      imageSourceType: "brand",
-      imageBrandId: tempImage.id,
-      selectedBrandTag: tempBrand.name,
-      imageConfig: { orientation, size }
-    })
-    setShowPopup(false)
-  }
+  // Lógica de validación
+  const isReady = activeTab === "Licencias" 
+    ? (!!selection.imageBrandId && accepted)
+    : (!!selection.imageCustomUrl && accepted)
 
-  const isBrandSelected = selection.imageSourceType === "brand"
+  useEffect(() => {
+    if (isHydrated && selection.imageSourceType) {
+      setActiveTab(selection.imageSourceType === "brand" ? "Licencias" : "Imagen personal")
+    }
+  }, [isHydrated, selection.imageSourceType])
 
   if (!isHydrated) return null
 
-  return (
-    <div className="flex flex-col h-full bg-white relative overflow-hidden">
-      <TelcelHeader />
+  const getImageStyle = (type: 'brand' | 'custom', isPreview: boolean = false) => {
+    const savedConfig = type === 'brand' ? selection.imageBrandConfig : selection.imageCustomConfig
+    const currentConfig = isPreview ? savedConfig : config
+    const rotation = currentConfig?.rotation || 0
+    let baseScale = currentConfig?.size === "Mediana" ? 0.75 : currentConfig?.size === "Pequeña" ? 0.5 : 1
+    const isSideways = Math.abs(rotation % 180) === 90
+    const finalScale = isSideways ? baseScale * 0.7 : baseScale
 
-      {/* HEADER REUTILIZABLE 5/6 */}
-      <StepHeader 
-        currentStep={5}
-        title="Selecciona tu imagen"
-        subtitle="Próximo paso: Enviar a producción"
-        backTo="case-selector"
-      />
+    return {
+      transform: `rotate(${rotation}deg) scale(${finalScale})`,
+      transition: "transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+      objectFit: "cover" as const
+    }
+  }
 
-      {/* Tabs */}
-      <div className="flex border-b border-slate-100 shrink-0 bg-white">
-        {["Licencias", "Imagen personal", "Diseñadores"].map((tab) => (
-          <button 
-            key={tab} 
-            onClick={() => setActiveTab(tab)} 
-            className={`flex-1 py-4 text-sm font-bold relative transition-colors ${activeTab === tab ? "text-slate-900" : "text-slate-400"}`}
-          >
-            {tab}
-            {activeTab === tab && <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-[#6b21a8] rounded-t-full mx-4" />}
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = () => {
+        setEditingImage({ url: reader.result as string, type: 'custom' })
+        setConfig({ rotation: 0, size: "Grande" })
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+
+  const handleConfirmEditor = () => {
+    if (!editingImage) return
+    const normalizedRotation = config.rotation % 360
+    updateSelection({
+      imageSourceType: editingImage.type,
+      ...(editingImage.type === 'brand' 
+        ? { imageBrandId: editingImage.url, imageBrandConfig: { rotation: normalizedRotation, size: config.size }, selectedBrandTag: brandSelector?.name || selection.selectedBrandTag }
+        : { imageCustomUrl: editingImage.url, imageCustomConfig: { rotation: normalizedRotation, size: config.size } }
+      )
+    })
+    setEditingImage(null)
+  }
+
+  const renderSummary = (url: string, type: 'brand' | 'custom', title: string, currentConfig: any) => (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      <div className="flex gap-6">
+        <div className="relative w-[45%] shrink-0">
+          <div className="aspect-[3/4.2] rounded-[2.5rem] bg-slate-900 p-2 shadow-2xl border-[4px] border-slate-800 overflow-hidden relative">
+            <img src={url} style={getImageStyle(type, true)} className="w-full h-full rounded-[1.8rem]" />
+            <button onClick={() => { setEditingImage({url, type}); setConfig(currentConfig as any); }} className="absolute bottom-4 right-4 w-10 h-10 bg-white text-[#6b21a8] rounded-full flex items-center justify-center shadow-xl border border-slate-100 active:scale-90 transition-transform">
+              <Pencil size={18} strokeWidth={2.5} />
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 pt-2">
+          <span className="text-[9px] font-black text-[#6b21a8] uppercase tracking-widest bg-purple-50 px-2 py-1 rounded">{type === 'brand' ? 'Oficial' : 'Mío'}</span>
+          <h3 className="text-2xl font-black text-slate-900 leading-tight mt-2 uppercase tracking-tighter">{title}</h3>
+          <button onClick={() => { updateSelection(type === 'brand' ? { imageBrandId: null, imageSourceType: null } : { imageCustomUrl: null, imageSourceType: null }); setAccepted(false); }} className="mt-6 flex items-center gap-2 text-[10px] font-black uppercase tracking-tight text-red-500 bg-red-50 py-3 px-4 rounded-xl w-full justify-center active:scale-95 transition-transform">
+            <RotateCw size={14} /> Cambiar imagen
           </button>
-        ))}
+          <label className="flex items-start gap-2 mt-6 cursor-pointer group">
+            <div className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${accepted ? 'bg-[#6b21a8] border-[#6b21a8]' : 'bg-white border-slate-200'}`}>
+              <input type="checkbox" checked={accepted} onChange={() => setAccepted(!accepted)} className="hidden" /> 
+              {accepted && <Check size={12} className="text-white" strokeWidth={4} />}
+            </div>
+            <span className="text-[10px] text-slate-500 font-bold">Confirmar diseño</span>
+          </label>
+        </div>
+      </div>
+      <div className="pt-4 border-t border-slate-100">
+        <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4 text-center">Color del case</h4>
+        <ColorSelector layout="grid" />
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="flex flex-col h-[100dvh] bg-white overflow-hidden">
+      <div className="shrink-0 border-b border-slate-100">
+        <div className="flex">
+          {["Licencias", "Imagen personal"].map((t) => (
+            <button key={t} onClick={() => { setActiveTab(t as any); setAccepted(false); }} className={`flex-1 py-4 text-xs font-black uppercase tracking-widest relative ${activeTab === t ? "text-[#6b21a8]" : "text-slate-400"}`}>
+              {t} {activeTab === t && <motion.div layoutId="tabLine" className="absolute bottom-0 left-0 right-0 h-[3px] bg-[#6b21a8] rounded-t-full mx-6" />}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <main className="flex-1 overflow-y-auto bg-slate-50/30">
-        {activeTab === "Licencias" && (
-          <div className="p-6">
-            {!isBrandSelected ? (
-              /* LISTADO DE MARCAS */
+      <main className="flex-1 overflow-y-auto pb-32 no-scrollbar">
+        <div className="p-6">
+          <div className={activeTab === "Licencias" ? "block" : "hidden"}>
+            {selection.imageBrandId ? renderSummary(selection.imageBrandId, 'brand', selection.selectedBrandTag || "Licencia", selection.imageBrandConfig) : (
               <div className="space-y-3">
-                {LICENSES.map((brand) => (
-                  <button
-                    key={brand.id}
-                    onClick={() => handleBrandClick(brand)}
-                    className="w-full bg-white border-2 border-transparent rounded-2xl p-5 flex items-center justify-between shadow-sm active:border-[#1e62c1] transition-all"
-                  >
-                    <div className="h-8 w-24 flex items-center">
-                      <img src={brand.logo} alt={brand.name} className="max-h-full object-contain grayscale opacity-70" />
-                    </div>
-                    <div className="w-8 h-8 rounded-full border border-slate-200 flex items-center justify-center text-slate-400">
-                      <ChevronRight className="w-5 h-5" />
-                    </div>
+                {LICENSES.map(b => (
+                  <button key={b.id} onClick={() => setBrandSelector(b)} className="w-full bg-white p-6 rounded-2xl flex justify-between items-center shadow-sm border border-slate-100 active:bg-slate-50 transition-colors">
+                    <img src={b.logo} className="h-6 object-contain grayscale opacity-60" />
+                    <ChevronRight className="text-slate-300" />
                   </button>
                 ))}
               </div>
-            ) : (
-              /* RESUMEN DE MARCA CARGADA */
-              <div className="space-y-6 animate-in fade-in duration-500">
-                <div className="flex gap-6 items-start">
-                  <div className="relative w-[45%]">
-                    <div className="aspect-[3/4] rounded-[2.5rem] bg-slate-800 p-2 shadow-xl border-[4px] border-slate-700 overflow-hidden">
-                      <div className="w-full h-full bg-white rounded-[1.8rem] relative overflow-hidden">
-                        <img src={tempImage?.url || selection.imageBrandId} className="w-full h-full object-cover" alt="Preview" />
-                        <div className="absolute inset-0 flex items-center justify-center bg-black/5">
-                           <button onClick={resetImage} className="w-10 h-10 bg-[#1e62c1] rounded-full flex items-center justify-center text-white shadow-lg">
-                             <Search className="w-5 h-5" />
-                           </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+            )}
+          </div>
 
-                  <div className="flex-1 space-y-3">
-                    <h3 className="text-2xl font-bold text-slate-900 leading-tight">Imagen {selection.selectedBrandTag}</h3>
-                    <p className="text-[11px] text-green-600 font-bold flex items-center gap-1">
-                      <Check className="w-3 h-3" strokeWidth={4} /> Compatible con tu modelo.
-                    </p>
-                    <p className="text-[11px] text-slate-400 leading-relaxed italic">
-                      Uso bajo licencia de {selection.selectedBrandTag}.
-                    </p>
-                    
-                    <label className="flex items-start gap-3 pt-2 cursor-pointer">
-                      <div 
-                        onClick={() => setAcceptedLicense(!acceptedLicense)}
-                        className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center ${acceptedLicense ? "bg-slate-900 border-slate-900" : "bg-white border-slate-200"}`}
-                      >
-                        {acceptedLicense && <Check className="w-3.5 h-3.5 text-white" strokeWidth={4} />}
-                      </div>
-                      <span className="text-[11px] text-slate-600 font-medium">
-                        Acepto la <span className="font-bold text-slate-900">licencia limitada de uso.</span>
-                      </span>
-                    </label>
+          <div className={activeTab === "Imagen personal" ? "block" : "hidden"}>
+            {selection.imageCustomUrl ? renderSummary(selection.imageCustomUrl, 'custom', "Tu Foto", selection.imageCustomConfig) : (
+              <div className="space-y-8 animate-in fade-in duration-500">
+                <div className="flex gap-6">
+                  <div className="relative w-[45%] shrink-0">
+                    <button onClick={() => fileInputRef.current?.click()} className="w-full aspect-[3/4.2] rounded-[2.5rem] bg-slate-50 border-[3px] border-dashed border-slate-200 flex flex-col items-center justify-center gap-2 overflow-hidden hover:border-purple-300 active:scale-95 transition-all">
+                      <div className="w-12 h-12 rounded-full bg-white shadow-sm flex items-center justify-center text-slate-300"><ImagePlus size={24} /></div>
+                    </button>
+                    <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleFileUpload} />
+                  </div>
+                  <div className="flex-1 pt-2">
+                    <span className="text-[9px] font-black text-slate-300 uppercase tracking-widest bg-slate-50 px-2 py-1 rounded">Personalizar</span>
+                    <h3 className="text-2xl font-black text-slate-200 leading-tight mt-2 uppercase italic tracking-tighter">Tu Foto Aquí</h3>
+                    <Button onClick={() => fileInputRef.current?.click()} className="mt-6 w-full h-12 bg-white border-2 border-slate-100 rounded-xl text-slate-400 font-black text-[10px] uppercase shadow-sm">Subir Archivo</Button>
                   </div>
                 </div>
-                
                 <div className="pt-4 border-t border-slate-100">
-                   <p className="text-sm font-bold text-slate-900 mb-3">Color del case: <span className="text-slate-400 font-medium">{selection.caseColor || 'No seleccionado'}</span></p>
-                   <div className="flex gap-3">
-                     <div className="w-10 h-10 rounded-full border-2 border-[#1e62c1]" style={{ backgroundColor: "#64748b" }} />
-                   </div>
+                  <ColorSelector layout="grid" />
                 </div>
               </div>
             )}
           </div>
-        )}
+        </div>
       </main>
 
-      {/* Footer Fijo */}
-      <footer className="p-6 bg-white border-t border-slate-50">
-        <div className="bg-white p-5 rounded-[2rem] border border-slate-100 shadow-sm flex justify-between items-center mb-4">
-          <div className="flex-1 overflow-hidden">
-            <p className="font-bold text-slate-900 text-sm">Detalles de tu pedido</p>
-            <p className="text-slate-500 text-[11px] italic truncate">
-              {selection.brand}, {selection.model}, {selection.caseType}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-[10px] font-bold text-slate-400 uppercase leading-none">Subtotal</p>
-            <p className="text-2xl font-bold text-slate-900">$699</p> 
-          </div>
-        </div>
-        <Button 
-          disabled={!isBrandSelected || !acceptedLicense}
-          onClick={() => setStep("final-summary")}
-          className="w-full h-16 rounded-[2rem] bg-[#6b21a8] text-white font-bold text-xl shadow-lg disabled:opacity-50 active:scale-95 transition-transform"
-        >
-          Siguiente
-        </Button>
-      </footer>
-
-      {/* POPUP LATERAL (Mantenemos tu lógica de navegación interna) */}
-      <div className={`absolute inset-0 z-50 transition-transform duration-500 bg-white flex flex-col ${showPopup ? "translate-x-0" : "-translate-x-full"}`}>
-        <div className="p-4 flex items-center border-b shrink-0">
-          <button onClick={() => popupStep === "adjust" ? setPopupStep("gallery") : setShowPopup(false)} className="w-10 h-10 flex items-center justify-center">
-            <ArrowLeft className="w-6 h-6" />
-          </button>
-          <h3 className="flex-1 text-center font-bold text-lg pr-10">
-            {popupStep === "gallery" ? `${tempBrand?.name} - Seleccionar` : "Ajustar imagen"}
-          </h3>
-        </div>
-
-        <div className="flex-1 overflow-y-auto">
-          {popupStep === "gallery" ? (
-            <div className="p-4 grid grid-cols-3 gap-3">
-              {(IMAGES_BY_LICENSE[tempBrand?.id] || []).map((img) => (
-                <button
-                  key={img.id}
-                  onClick={() => setTempImage(img)}
-                  className={`aspect-square relative rounded-2xl overflow-hidden border-4 transition-all ${tempImage?.id === img.id ? "border-[#1e62c1]" : "border-transparent"}`}
-                >
-                  <img src={img.url} className="w-full h-full object-cover" alt="Gallery Option" />
-                  <div className={`absolute top-2 right-2 rounded-full w-6 h-6 flex items-center justify-center border ${tempImage?.id === img.id ? "bg-[#6b21a8] text-white border-transparent" : "bg-white/80 border-slate-200"}`}>
-                    {tempImage?.id === img.id && <Check className="w-3 h-3" strokeWidth={4} />}
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <div className="p-6 flex flex-col items-center">
-              <div className="flex gap-4 w-full mb-8">
-                {["Vertical", "Horizontal"].map((opt) => (
-                  <button key={opt} onClick={() => setOrientation(opt as any)} className={`flex-1 h-14 rounded-2xl border-2 flex items-center justify-between px-6 font-bold ${orientation === opt ? "border-black" : "border-slate-100 text-slate-400"}`}>
-                    {opt}
-                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${orientation === opt ? "border-black" : "border-slate-300"}`}>
-                      {orientation === opt && <div className="w-3 h-3 bg-black rounded-full" />}
-                    </div>
-                  </button>
-                ))}
-              </div>
-
-              <div className="w-full mb-8">
-                <p className="text-sm font-bold mb-4">Tamaño de la imagen</p>
-                <div className="flex justify-around items-end h-16">
-                  {["Grande", "Mediana", "Pequeña"].map((s) => (
-                    <button key={s} onClick={() => setSize(s as any)} className="flex flex-col items-center gap-1">
-                      <ImageIcon className={`${s === "Grande" ? "w-10 h-10" : s === "Mediana" ? "w-7 h-7" : "w-5 h-5"} ${size === s ? "text-[#6b21a8]" : "text-slate-300"}`} />
-                      <span className={`text-[10px] font-bold ${size === s ? "text-slate-900" : "text-slate-400"}`}>{s}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="relative w-48 aspect-[1/2] bg-slate-800 rounded-[2.5rem] p-3 border-[6px] border-slate-700 shadow-2xl">
-                <div className="w-full h-full bg-white rounded-[1.8rem] overflow-hidden relative">
-                  <img src={tempImage?.url} className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 object-cover transition-all duration-300 ${size === "Grande" ? "w-full h-full" : size === "Mediana" ? "w-[80%]" : "w-[60%]"} ${orientation === "Horizontal" ? "rotate-90" : ""}`} alt="Adjust Preview" />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="p-6">
+      {/* FOOTER NAV CON VALIDACIÓN */}
+      <div className="fixed bottom-0 left-0 right-0 p-6 bg-gradient-to-t from-white via-white to-transparent pointer-events-none">
+        <div className="max-w-md mx-auto pointer-events-auto">
           <Button 
-            disabled={!tempImage}
-            onClick={() => popupStep === "gallery" ? setPopupStep("adjust") : handleConfirmAdjustment()}
-            className="w-full h-16 rounded-[2rem] bg-[#6b21a8] text-white font-bold text-xl active:scale-95 transition-transform"
+            disabled={!isReady}
+            onClick={() => setStep("contact-form")}
+            className={`w-full h-16 rounded-2xl font-black uppercase tracking-widest text-lg transition-all duration-300 shadow-2xl ${isReady ? 'bg-[#6b21a8] text-white shadow-purple-200 active:scale-95' : 'bg-slate-100 text-slate-300'}`}
           >
-            Siguiente
+            {isReady ? 'Continuar' : 'Completa tu diseño'}
           </Button>
         </div>
       </div>
+
+      {/* MODALES DE CATÁLOGO Y EDITOR */}
+      <AnimatePresence>
+        {brandSelector && (
+          <motion.div initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 200 }} className="fixed inset-0 z-[110] bg-white flex flex-col">
+            <div className="p-5 border-b flex items-center gap-4"><button onClick={() => setBrandSelector(null)} className="p-1"><ArrowLeft /></button><h3 className="font-bold text-lg uppercase tracking-tight">Elegir imagen</h3></div>
+            <div className="flex-1 overflow-y-auto p-4 grid grid-cols-3 gap-3 no-scrollbar">
+              {IMAGES_BY_LICENSE[brandSelector.id]?.map(img => (
+                <button key={img.id} onClick={() => setTempSelectedImg(img.url)} className={`aspect-square rounded-2xl relative border-2 transition-all ${tempSelectedImg === img.url ? "border-[#6b21a8] p-1" : "border-transparent"}`}><img src={img.url} className="w-full h-full object-cover rounded-xl" />{tempSelectedImg === img.url && <div className="absolute top-1 right-1 bg-[#6b21a8] rounded-full p-1 shadow-md"><Check size={12} className="text-white" strokeWidth={4} /></div>}</button>
+              ))}
+            </div>
+            <div className="p-6 border-t bg-white">
+              <Button disabled={!tempSelectedImg} onClick={() => { setEditingImage({url: tempSelectedImg!, type: 'brand'}); setBrandSelector(null); setTempSelectedImg(null); setConfig({rotation:0, size:'Grande'}); }} className="w-full h-14 bg-[#6b21a8] rounded-2xl text-white font-bold">Continuar</Button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {editingImage && (
+          <motion.div initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "spring", damping: 25, stiffness: 200 }} className="fixed inset-0 z-[120] bg-white flex flex-col">
+            <div className="p-4 border-b flex items-center gap-4 bg-white"><button onClick={() => setEditingImage(null)} className="p-1 text-slate-400"><ArrowLeft /></button><span className="font-black text-xs uppercase tracking-widest text-slate-900">Ajustar Diseño</span></div>
+            <div className="flex-1 flex flex-col items-center justify-center p-6 bg-slate-50/50">
+              <div className="relative w-48 aspect-[3/4.2] bg-white rounded-[3rem] shadow-2xl border-[8px] border-slate-900 overflow-hidden mb-12 flex items-center justify-center"><img src={editingImage.url} style={getImageStyle(editingImage.type, false)} className="w-full h-full" /></div>
+              <div className="w-full max-w-xs space-y-6">
+                <div className="flex justify-center"><button onClick={() => setConfig({...config, rotation: config.rotation + 90})} className="flex flex-col items-center gap-2 group active:scale-90 transition-transform"><div className="w-14 h-14 rounded-full bg-white shadow-md flex items-center justify-center text-[#6b21a8] border group-active:rotate-90 transition-transform"><RotateCw size={24} /></div><span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Girar</span></button></div>
+                <div className="flex gap-2">
+                  {[{id:"Pequeña", icon:<Minimize2 size={16}/>}, {id:"Mediana", icon:<Square size={16}/>}, {id:"Grande", icon:<Maximize size={16}/>}].map(s => (
+                    <button key={s.id} onClick={() => setConfig({...config, size: s.id as any})} className={`flex-1 flex flex-col items-center py-4 rounded-2xl border-2 transition-all ${config.size === s.id ? "bg-[#6b21a8] border-[#6b21a8] text-white shadow-lg -translate-y-1" : "bg-white text-slate-400 border-slate-100"}`}>{s.icon} <span className="text-[9px] font-black mt-2 uppercase">{s.id}</span></button>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="p-6 bg-white border-t"><Button onClick={handleConfirmEditor} className="w-full h-14 bg-[#6b21a8] text-white rounded-2xl font-black uppercase tracking-tight">Confirmar diseño</Button></div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

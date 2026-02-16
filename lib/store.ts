@@ -1,102 +1,107 @@
-import { atom } from 'jotai';
-import { atomWithStorage, createJSONStorage } from 'jotai/utils';
+"use client"
 
-// 1. Tipado del Estado
+import { atom } from 'jotai'
+import { atomWithStorage, createJSONStorage } from 'jotai/utils'
+
+export type StepType = 
+  | "onboarding" | "phone-selector" | "combo-selector" 
+  | "mica-selector" | "case-selector" | "image-selector" 
+  | "contact-form" | "final-summary"
+
+export type ImageSourceType = 'brand' | 'custom' | null;
+
 export interface SelectionState {
   brand: string | null;
   model: string | null;
-  comboId: string | null;
+  comboId: string;
   micaId: string | null;
   caseId: string | null;
-  caseColor: string | null;
-  caseType: string | null;
-  imageSourceType: "brand" | "custom" | null;
+  caseColor: string;
+  caseType: string;
+  
+  // Estas son las propiedades que tu componente ImageSelector está buscando:
+  imageSourceType: ImageSourceType;
   imageBrandId: string | null;
-  imageCustomId: string | null;
+  imageBrandConfig: any | null;
   selectedBrandTag: string | null;
-  imageConfig: {
-    orientation: "Vertical" | "Horizontal";
-    size: "Grande" | "Mediana" | "Pequeña";
-  } | null;
+  imageCustomUrl: string | null;
+  imageCustomConfig: any | null;
+  
+  // Mantengo este por si otros componentes lo usan
+  image: {
+    url: string | null;
+    x: number;
+    y: number;
+    scale: number;
+    rotate: number;
+  };
+  contact: { name: string; email: string; phone: string };
 }
 
-export type StepType = 
-  | "onboarding"
-  | "phone-selector"
-  | "combo-selector"
-  | "mica-selector"
-  | "case-selector"
-  | "image-selector"
-  | "auth"
-  | "final-summary";
+export const COMBO_STEPS: Record<string, StepType[]> = {
+  "combo1": ["onboarding", "phone-selector", "combo-selector", "mica-selector", "case-selector", "image-selector", "contact-form", "final-summary"],
+  "combo2": ["onboarding", "phone-selector", "combo-selector", "mica-selector", "case-selector", "contact-form", "final-summary"],
+  "combo3": ["onboarding", "phone-selector", "combo-selector", "case-selector", "image-selector", "contact-form", "final-summary"],
+  "combo4": ["onboarding", "phone-selector", "combo-selector", "mica-selector", "contact-form", "final-summary"],
+  "combo5": ["onboarding", "phone-selector", "combo-selector", "case-selector", "contact-form", "final-summary"],
+}
 
-// 2. Valores Iniciales
-const initialSelection: SelectionState = {
+const storage = createJSONStorage<any>(() => (typeof window !== 'undefined' ? localStorage : ({} as Storage)))
+
+export const initialSelection: SelectionState = {
   brand: null,
   model: null,
-  comboId: null,
+  comboId: "combo1",
   micaId: null,
   caseId: null,
-  caseType: null,
-  caseColor: null,
+  caseColor: "Naranja",
+  caseType: "Flexi",
   imageSourceType: null,
   imageBrandId: null,
-  imageCustomId: null,
+  imageBrandConfig: null,
   selectedBrandTag: null,
-  imageConfig: null,
-};
+  imageCustomUrl: null,
+  imageCustomConfig: null,
+  image: { url: null, x: 0, y: 0, scale: 1, rotate: 0 },
+  contact: { name: "", email: "", phone: "" }
+}
 
-// 3. Configuración de Storage segura para SSR
-const storage = createJSONStorage<any>(() => 
-  typeof window !== 'undefined' ? localStorage : ({} as Storage)
-);
+export const selectionAtom = atomWithStorage<SelectionState>('telcel_selection', initialSelection, storage)
+export const currentStepAtom = atomWithStorage<StepType>('telcel_step', 'onboarding', storage)
 
-export const selectionAtom = atomWithStorage<SelectionState>(
-  'telcel_selection', 
-  initialSelection,
-  storage
-);
+// Selectores para el Footer y navegación
+export const stepsPathAtom = atom((get) => {
+  const selection = get(selectionAtom)
+  return COMBO_STEPS[selection?.comboId] || COMBO_STEPS["combo1"]
+})
 
-export const currentStepAtom = atomWithStorage<StepType>(
-  'telcel_step', 
-  'onboarding',
-  storage
-);
+export const stepProgressAtom = atom((get) => {
+  const steps = get(stepsPathAtom) || []
+  const currentStep = get(currentStepAtom)
+  const currentIndex = steps.indexOf(currentStep)
 
-/**
- * 4. Átomos de Acción
- */
+  let visualStep = 0
+  if (currentStep === "phone-selector") visualStep = 1
+  else if (currentStep === "combo-selector") visualStep = 2
+  else if (["mica-selector", "case-selector", "image-selector"].includes(currentStep)) visualStep = 3
+  else if (currentStep === "contact-form" || currentStep === "final-summary") visualStep = 4
 
-// Actualizar selección parcialmente
-export const updateSelectionAction = atom(
-  null,
-  (get, set, data: Partial<SelectionState>) => {
-    const prev = get(selectionAtom);
-    set(selectionAtom, { ...prev, ...data });
+  return {
+    current: visualStep,
+    total: 4,
+    currentIndex,
+    previous: (currentIndex > 0 ? steps[currentIndex - 1] : "onboarding") as StepType,
+    next: (currentIndex < steps.length - 1 && currentIndex !== -1 ? steps[currentIndex + 1] : "final-summary") as StepType,
   }
-);
+})
 
-// Resetear solo la imagen
-export const resetImageAction = atom(
-  null,
-  (get, set) => {
-    const prev = get(selectionAtom);
-    set(selectionAtom, {
-      ...prev,
-      imageSourceType: null,
-      imageBrandId: null,
-      imageCustomId: null,
-      selectedBrandTag: null,
-      imageConfig: null,
-    });
-  }
-);
-
-// Reset total de la aplicación (Vuelve al origen)
-export const resetAppAction = atom(
-  null,
-  (get, set) => {
-    set(selectionAtom, initialSelection);
-    set(currentStepAtom, 'onboarding');
-  }
-);
+export const totalSelectionPriceAtom = atom((get) => {
+  const selection = get(selectionAtom);
+  const comboPrices: Record<string, number> = {
+    combo1: 899, combo2: 699, combo3: 599, combo4: 299, combo5: 399
+  };
+  const micaPrices: Record<string, number> = { m1: 0, m2: 150, m3: 200 };
+  const basePrice = comboPrices[selection.comboId] || 0;
+  const extraMica = selection.micaId ? (micaPrices[selection.micaId as string] || 0) : 0;
+  return basePrice + extraMica;
+});
