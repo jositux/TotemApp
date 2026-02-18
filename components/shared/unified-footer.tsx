@@ -1,9 +1,9 @@
 "use client"
 
-import React from "react"
+import React, { useMemo } from "react"
 import { useApp } from "@/hooks/use-app"
 import { useAtomValue } from "jotai"
-import { totalSelectionPriceAtom, selectionAtom } from "@/lib/store"
+import { totalSelectionPriceAtom, selectionAtom, activeImageTabAtom } from "@/lib/store"
 import { Button } from "@/components/ui/button"
 import { motion, AnimatePresence } from "framer-motion"
 
@@ -11,9 +11,26 @@ export function UnifiedFooter() {
   const { currentStep, setStep, progress } = useApp()
   const selection = useAtomValue(selectionAtom)
   const totalPrice = useAtomValue(totalSelectionPriceAtom)
+  const activeTab = useAtomValue(activeImageTabAtom)
 
+  // 1. Hook de validación (Siempre al inicio)
+  const isImageReady = useMemo(() => {
+    if (currentStep !== "image-selector") return true;
+    
+    // Validación estricta según la pestaña que el usuario está viendo
+    if (activeTab === "Licencias") {
+      return !!selection.imageBrandId;
+    }
+    if (activeTab === "Imagen personal") {
+      return !!selection.imageCustomUrl;
+    }
+    return false;
+  }, [currentStep, activeTab, selection.imageBrandId, selection.imageCustomUrl]);
+
+  // 2. Retorno temprano para steps sin footer
   if (currentStep === "onboarding" || currentStep === "final-summary") return null
 
+  // 3. Variables de estado visual
   const isContactForm = currentStep === "contact-form"
   const isPhoneSelector = currentStep === "phone-selector"
   const isImageSelector = currentStep === "image-selector"
@@ -23,12 +40,6 @@ export function UnifiedFooter() {
   const hasBrand = !!selection.brand 
   const hasModel = !!selection.model
   const shouldShowPrice = !isPhoneSelector && hasModel
-
-  // VALIDACIÓN DE IMAGEN:
-  // Si es el paso de imagen, verificamos que el tipo de fuente (brand/custom) coincida con la URL/ID y el check
-  const isImageReady = isImageSelector 
-    ? (selection.imageSourceType === 'brand' ? !!selection.imageBrandId : !!selection.imageCustomUrl) 
-    : true
 
   const getDetailString = () => {
     const parts = []
@@ -90,7 +101,7 @@ export function UnifiedFooter() {
       </AnimatePresence>
 
       <Button 
-        // Habilitado solo si tiene modelo Y (si es paso de imagen, que la imagen esté lista)
+        // Habilitado si tiene modelo Y (si es imagen, que la pestaña activa esté completa)
         disabled={!hasModel || !isImageReady}
         onClick={() => setStep(progress.next)}
         className="w-full h-14 rounded-[1rem] bg-[#6b21a8] hover:bg-[#581c87] text-white font-bold text-lg shadow-md shadow-purple-50 transition-all active:scale-95 disabled:opacity-30 disabled:bg-slate-300"
