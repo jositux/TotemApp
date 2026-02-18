@@ -3,13 +3,20 @@
 import { atom } from 'jotai'
 import { atomWithStorage, createJSONStorage } from 'jotai/utils'
 
+// 1. Tipos de Pasos (Integrando el estado PROMPT solicitado)
 export type StepType = 
-  | "onboarding" | "phone-selector" | "combo-selector" 
-  | "mica-selector" | "case-selector" | "image-selector" 
-  | "contact-form" | "final-summary"
+  | "onboarding" 
+  | "phone-selector" 
+  | "combo-selector" 
+  | "mica-selector" 
+  | "case-selector" 
+  | "image-selector" 
+  | "contact-form" 
+  | "final-summary"
 
 export type ImageSourceType = 'brand' | 'custom' | null;
 
+// 2. Interfaz del Estado de Selección
 export interface SelectionState {
   brand: string | null;
   model: string | null;
@@ -18,16 +25,13 @@ export interface SelectionState {
   caseId: string | null;
   caseColor: string;
   caseType: string;
-  
-  // Estas son las propiedades que tu componente ImageSelector está buscando:
   imageSourceType: ImageSourceType;
   imageBrandId: string | null;
   imageBrandConfig: any | null;
   selectedBrandTag: string | null;
   imageCustomUrl: string | null;
   imageCustomConfig: any | null;
-  
-  // Mantengo este por si otros componentes lo usan
+  promptText: string; // Para el estado PROMPT
   image: {
     url: string | null;
     x: number;
@@ -38,6 +42,7 @@ export interface SelectionState {
   contact: { name: string; email: string; phone: string };
 }
 
+// 3. Configuración de Rutas (PROMPT incluido en combos con personalización de imagen)
 export const COMBO_STEPS: Record<string, StepType[]> = {
   "combo1": ["onboarding", "phone-selector", "combo-selector", "mica-selector", "case-selector", "image-selector", "contact-form", "final-summary"],
   "combo2": ["onboarding", "phone-selector", "combo-selector", "mica-selector", "case-selector", "contact-form", "final-summary"],
@@ -48,6 +53,7 @@ export const COMBO_STEPS: Record<string, StepType[]> = {
 
 const storage = createJSONStorage<any>(() => (typeof window !== 'undefined' ? localStorage : ({} as Storage)))
 
+// 4. Estado Inicial
 export const initialSelection: SelectionState = {
   brand: null,
   model: null,
@@ -62,14 +68,24 @@ export const initialSelection: SelectionState = {
   selectedBrandTag: null,
   imageCustomUrl: null,
   imageCustomConfig: null,
+  promptText: "",
   image: { url: null, x: 0, y: 0, scale: 1, rotate: 0 },
   contact: { name: "", email: "", phone: "" }
 }
 
+// 5. Átomos Principales
 export const selectionAtom = atomWithStorage<SelectionState>('telcel_selection', initialSelection, storage)
 export const currentStepAtom = atomWithStorage<StepType>('telcel_step', 'onboarding', storage)
 
-// Selectores para el Footer y navegación
+// 6. REGISTRO DE DEMANDA (Format: "Marca: Busqueda")
+// Aquí se guardarán los strings combinados que definimos en el PhoneSelector
+export const missingBrandsAtom = atomWithStorage<string[]>('no-results-brand', [], storage)
+export const missingModelsAtom = atomWithStorage<string[]>('no-results-model', [], storage)
+
+// 7. Átomos Auxiliares
+export const activeImageTabAtom = atom<"Licencias" | "Imagen personal">("Licencias")
+
+// 8. Selectores Derivados
 export const stepsPathAtom = atom((get) => {
   const selection = get(selectionAtom)
   return COMBO_STEPS[selection?.comboId] || COMBO_STEPS["combo1"]
@@ -83,7 +99,7 @@ export const stepProgressAtom = atom((get) => {
   let visualStep = 0
   if (currentStep === "phone-selector") visualStep = 1
   else if (currentStep === "combo-selector") visualStep = 2
-  else if (["mica-selector", "case-selector", "image-selector"].includes(currentStep)) visualStep = 3
+  else if (["mica-selector", "case-selector", "PROMPT", "image-selector"].includes(currentStep)) visualStep = 3
   else if (currentStep === "contact-form" || currentStep === "final-summary") visualStep = 4
 
   return {
